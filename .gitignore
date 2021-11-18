@@ -1,0 +1,10 @@
+obj
+Temp
+Library
+.vs
+Logs
+.DS_Store
+Assets/Plugins
+*.sln
+*.csproj
+.vsconfig
