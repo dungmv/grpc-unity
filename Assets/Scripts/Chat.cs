@@ -16,9 +16,11 @@ public class Chat : MonoBehaviour
 {
     public string ServerHost = "localhost";
 
-    private Queue<ClientMsg> sendMsgQueue;
-    private Dictionary<string, Future> onCompletion;
-    private CancellationTokenSource cancellationTokenSource;
+    private Queue<ClientMsg> sendMsgQueue = new Queue<ClientMsg>();
+    private Dictionary<string, Future> onCompletion = new Dictionary<string, Future>();
+    private CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+    private AsyncDuplexStreamingCall<ClientMsg, ServerMsg> client;
+    private Channel channel;
     private long NextTid { get; set; }
     private string AppName => "ChatBot";
     /// <summary>
@@ -36,17 +38,31 @@ public class Chat : MonoBehaviour
     private string cookie = ".tn-cookie";
     private string schema = "basic";
     private string secret = "";
+
     // Start is called before the first frame update
     void Start()
     {
-        sendMsgQueue = new Queue<ClientMsg>();
         NextTid = UnityEngine.Random.Range(1, 1000);
     }
 
     // Update is called once per frame
-    void Update()
+    async void Update()
     {
+        while (client != null && sendMsgQueue.Count > 0)
+        {
+            var msg = sendMsgQueue.Dequeue();
+            try
+            {
+                await client.RequestStream.WriteAsync(msg);
+            }
+            catch (Exception e)
+            {
+                Debug.LogFormat("Send Message Error {}, Failed message will be put back to queue...", e.Message);
+                sendMsgQueue.Enqueue(msg);
+                Thread.Sleep(1000);
+            }
 
+        }
     }
 
     public void Connect()
@@ -57,17 +73,19 @@ public class Chat : MonoBehaviour
             new ChannelOption("grpc.keepalive_timeout_ms", 2000)
         };
 
-        var channel = new Channel(ServerHost, ChannelCredentials.Insecure, options);
+        channel = new Channel(ServerHost, ChannelCredentials.Insecure, options);
 
         var stub = new Node.NodeClient(channel);
 
-        var stream = stub.MessageLoop(cancellationToken: cancellationTokenSource.Token);
+        client = stub.MessageLoop(cancellationToken: cancellationTokenSource.Token);
     }
 
     public void Disconnect()
     {
-
+        cancellationTokenSource.Cancel();
+        channel.ShutdownAsync().Wait();
     }
+
     public void OnLogin(string cookieFile, MapField<string, ByteString> paramaters)
     {
         if (paramaters == null || string.IsNullOrEmpty(cookieFile))
@@ -154,6 +172,9 @@ public class Chat : MonoBehaviour
 
     public void ClientPost(ClientMsg msg)
     {
-        sendMsgQueue.Enqueue(msg);
+        if (client != null)
+        {
+            sendMsgQueue.Enqueue(msg);
+        }
     }
 }
