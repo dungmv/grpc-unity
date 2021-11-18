@@ -5,6 +5,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using Google.Protobuf;
 using Google.Protobuf.Collections;
 using Grpc.Core;
@@ -48,20 +49,19 @@ public class Chat : MonoBehaviour
     // Update is called once per frame
     async void Update()
     {
-        while (client != null && sendMsgQueue.Count > 0)
+        while (client != null && client.ResponseStream.Current > 0)
         {
             var msg = sendMsgQueue.Dequeue();
             try
             {
+                Debug.Log("send msg start");
                 await client.RequestStream.WriteAsync(msg);
+                Debug.Log("send msg done");
             }
             catch (Exception e)
             {
-                Debug.LogFormat("Send Message Error {}, Failed message will be put back to queue...", e.Message);
-                sendMsgQueue.Enqueue(msg);
-                Thread.Sleep(1000);
+                Debug.LogException(e);
             }
-
         }
     }
 
@@ -78,12 +78,15 @@ public class Chat : MonoBehaviour
         var stub = new Node.NodeClient(channel);
 
         client = stub.MessageLoop(cancellationToken: cancellationTokenSource.Token);
+        SendMessageLoop();
+        Debug.Log("Connected");
     }
 
     public void Disconnect()
     {
         cancellationTokenSource.Cancel();
         channel.ShutdownAsync().Wait();
+        Debug.Log("Disconnected");
     }
 
     public void OnLogin(string cookieFile, MapField<string, ByteString> paramaters)
@@ -121,7 +124,7 @@ public class Chat : MonoBehaviour
         }
         catch (Exception e)
         {
-            Debug.Log($"On Login Failed to save authentication cookie:{e}");
+            Debug.LogFormat("On Login Failed to save authentication cookie: {}", e);
         }
 
     }
@@ -135,6 +138,7 @@ public class Chat : MonoBehaviour
 
         ClientMsg msg = new ClientMsg() { Login = new ClientLogin() { Id = tid, Scheme = schema, Secret = ByteString.CopyFromUtf8(secret) } };
         ClientPost(msg);
+        Debug.Log("Login");
     }
 
     public void Hi()
@@ -175,6 +179,103 @@ public class Chat : MonoBehaviour
         if (client != null)
         {
             sendMsgQueue.Enqueue(msg);
+        }
+    }
+    /// <summary>
+    /// sending message queue loop
+    /// </summary>
+    public void SendMessageLoop()
+    {
+        Task sendBackendTask = new Task(async () =>
+        {
+            Debug.Log("Start Message Queue Message send queue started...");
+            while (!cancellationTokenSource.IsCancellationRequested)
+            {
+                if (sendMsgQueue.Count > 0)
+                {
+                    var msg = sendMsgQueue.Dequeue();
+                    try
+                    {
+                        await client.RequestStream.WriteAsync(msg);
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogException(e);
+                    }
+
+
+                }
+                else
+                {
+                    Thread.Sleep(10);
+                }
+            }
+            Debug.Log("User Cancel Detect cancel message,stop sending message...");
+        }, cancellationTokenSource.Token);
+        sendBackendTask.Start();
+
+    }
+
+    public async Task ClientMessageLoop()
+    {
+        while (!cancellationTokenSource.IsCancellationRequested)
+        {
+            if (!await client.ResponseStream.MoveNext())
+            {
+                break;
+            }
+            var response = client.ResponseStream.Current;
+            if (response.Ctrl != null)
+            {
+                Debug.Log($"ID={response.Ctrl.Id}  Code={response.Ctrl.Code}  Text={response.Ctrl.Text}  Params={response.Ctrl.Params}");
+                ExecFuture(response.Ctrl.Id, response.Ctrl.Code, response.Ctrl.Text, response.Ctrl.Topic, response.Ctrl.Params);
+            }
+            else if (response.Data != null)
+            {
+                OnServerDataEvent(new ServerDataEventArgs(response.Data.Clone()));
+                if (response.Data.FromUserId != BotUID)
+                {
+                    ClientPost(NoteRead(response.Data.Topic, response.Data.SeqId));
+                    Thread.Sleep(50);
+                    if (BotResponse != null)
+                    {
+                        var reply = await BotResponse.ThinkAndReply(response.Data.Clone());
+                        //if the response is null, means no need to reply
+                        if (reply != null)
+                        {
+                            ClientPost(Publish(response.Data.Topic, reply));
+                        }
+
+                    }
+                    else
+                    {
+                        ClientPost(Publish(response.Data.Topic, "I don't know how to talk with you, maybe my father didn't put my brain in my head..."));
+                    }
+
+                }
+            }
+            else if (response.Pres != null)
+            {
+                if (response.Pres.Topic == "me")
+                {
+                    if ((response.Pres.What == ServerPres.Types.What.On || response.Pres.What == ServerPres.Types.What.Msg) && !subscriptions.ContainsKey(response.Pres.Src))
+                    {
+                        ClientPost(Subscribe(response.Pres.Src));
+
+                    }
+                    else if (response.Pres.What == ServerPres.Types.What.Off && subscriptions.ContainsKey(response.Pres.Src))
+                    {
+                        ClientPost(Leave(response.Pres.Src));
+                    }
+                }
+
+                OnServerPresEvent(new ServerPresEventArgs(response.Pres.Clone()));
+            }
+            else if (response.Meta != null)
+            {
+                OnGetMeta(response.Meta);
+                OnServerMetaEvent(new ServerMetaEventArgs(response.Meta.Clone()));
+            }
         }
     }
 }
