@@ -20,22 +20,12 @@ public class Chat : MonoBehaviour
     private AsyncDuplexStreamingCall<ClientMsg, ServerMsg> client;
     private Channel channel;
     private long NextTid { get; set; }
-    private string AppName => "ChatBot";
-    /// <summary>
-    /// Chatbot version
-    /// </summary>
+    private string AppName => "zombiewar";
     private string AppVersion => "0.16.0";
-    /// <summary>
-    /// Chatbot library version
-    /// </summary>
     private string LibVersion => "0.16.0";
-    /// <summary>
-    /// Chatbot current platfrom information
-    /// </summary>
     private string Platform => $"({RuntimeInformation.OSDescription} {RuntimeInformation.OSArchitecture})";
-    private string cookie = ".tn-cookie";
-    private string schema = "basic";
-    private string secret = "";
+    public string schema = "rest";
+    public string secret = "YWxpY2U6YWxpY2UxMjM=";
 
     // Start is called before the first frame update
     void Start()
@@ -92,7 +82,7 @@ public class Chat : MonoBehaviour
         }
         else
         {
-            cookieDics["schema"] = "basic";
+            cookieDics["schema"] = "token";
             cookieDics["secret"] = JsonConvert.DeserializeObject<string>(paramaters["token"].ToString(Encoding.UTF8));
         }
         //save token for upload operation
@@ -108,7 +98,7 @@ public class Chat : MonoBehaviour
         }
         catch (Exception e)
         {
-            Debug.LogFormat("On Login Failed to save authentication cookie: {}", e);
+            Debug.LogException(e);
         }
 
     }
@@ -129,15 +119,6 @@ public class Chat : MonoBehaviour
 
         ClientPost(msg);
         Debug.Log("Hi");
-    }
-
-    public void ServerVersion(MapField<string, ByteString> paramaters)
-    {
-        if (paramaters == null)
-        {
-            return;
-        }
-        Debug.Log($"Server Version Server:{paramaters["build"].ToString(Encoding.ASCII)},{paramaters["ver"].ToString(Encoding.ASCII)}");
     }
 
     public string GetNextTid()
@@ -202,5 +183,10 @@ public class Chat : MonoBehaviour
             }
         }, cancellationTokenSource.Token);
         receiveBackendTask.Start();
+    }
+
+    private void OnDisable()
+    {
+        Disconnect();
     }
 }

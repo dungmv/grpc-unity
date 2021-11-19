@@ -1236,3 +1236,5 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9a43cb23661e2462d98c314517e542c5, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  schema: rest
+  secret: YWxpY2U6YWxpY2UxMjM=
