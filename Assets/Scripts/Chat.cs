@@ -18,7 +18,6 @@ public class Chat : MonoBehaviour
     public string ServerHost = "localhost";
 
     private Queue<ClientMsg> sendMsgQueue = new Queue<ClientMsg>();
-    private Dictionary<string, Future> onCompletion = new Dictionary<string, Future>();
     private CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
     private AsyncDuplexStreamingCall<ClientMsg, ServerMsg> client;
     private Channel channel;
@@ -47,22 +46,8 @@ public class Chat : MonoBehaviour
     }
 
     // Update is called once per frame
-    async void Update()
+    void Update()
     {
-        while (client != null && client.ResponseStream.Current > 0)
-        {
-            var msg = sendMsgQueue.Dequeue();
-            try
-            {
-                Debug.Log("send msg start");
-                await client.RequestStream.WriteAsync(msg);
-                Debug.Log("send msg done");
-            }
-            catch (Exception e)
-            {
-                Debug.LogException(e);
-            }
-        }
     }
 
     public void Connect()
@@ -79,6 +64,7 @@ public class Chat : MonoBehaviour
 
         client = stub.MessageLoop(cancellationToken: cancellationTokenSource.Token);
         SendMessageLoop();
+        ReceiveMessageLoop();
         Debug.Log("Connected");
     }
 
@@ -131,10 +117,6 @@ public class Chat : MonoBehaviour
     public void Login()
     {
         var tid = GetNextTid();
-        AddFuture(tid, new Future(tid, Future.FutureTypes.Login, new Action<string, MapField<string, ByteString>>((fname, paramaters) =>
-        {
-            OnLogin(fname, paramaters);
-        }), cookie));
 
         ClientMsg msg = new ClientMsg() { Login = new ClientLogin() { Id = tid, Scheme = schema, Secret = ByteString.CopyFromUtf8(secret) } };
         ClientPost(msg);
@@ -144,19 +126,11 @@ public class Chat : MonoBehaviour
     public void Hi()
     {
         var tid = GetNextTid();
-        AddFuture(tid, new Future(tid, Future.FutureTypes.Hi, new Action<string, MapField<string, ByteString>>((unused, paramaters) =>
-        {
-            ServerVersion(paramaters);
-        })));
 
         ClientMsg msg = new ClientMsg() { Hi = new ClientHi() { Id = tid, UserAgent = $"{AppName}/{AppVersion} {Platform}; gRPC-csharp/{AppVersion}", Ver = LibVersion, Lang = "EN" } };
 
         ClientPost(msg);
-    }
-
-    public void AddFuture(string tid, Future bundle)
-    {
-        onCompletion.Add(tid, bundle);
+        Debug.Log("Hi");
     }
 
     public void ServerVersion(MapField<string, ByteString> paramaters)
@@ -202,8 +176,6 @@ public class Chat : MonoBehaviour
                     {
                         Debug.LogException(e);
                     }
-
-
                 }
                 else
                 {
@@ -216,66 +188,21 @@ public class Chat : MonoBehaviour
 
     }
 
-    public async Task ClientMessageLoop()
+    public void ReceiveMessageLoop()
     {
-        while (!cancellationTokenSource.IsCancellationRequested)
+        Task receiveBackendTask = new Task(async () =>
         {
-            if (!await client.ResponseStream.MoveNext())
+            while (!cancellationTokenSource.IsCancellationRequested)
             {
-                break;
-            }
-            var response = client.ResponseStream.Current;
-            if (response.Ctrl != null)
-            {
-                Debug.Log($"ID={response.Ctrl.Id}  Code={response.Ctrl.Code}  Text={response.Ctrl.Text}  Params={response.Ctrl.Params}");
-                ExecFuture(response.Ctrl.Id, response.Ctrl.Code, response.Ctrl.Text, response.Ctrl.Topic, response.Ctrl.Params);
-            }
-            else if (response.Data != null)
-            {
-                OnServerDataEvent(new ServerDataEventArgs(response.Data.Clone()));
-                if (response.Data.FromUserId != BotUID)
+                if (!await client.ResponseStream.MoveNext())
                 {
-                    ClientPost(NoteRead(response.Data.Topic, response.Data.SeqId));
-                    Thread.Sleep(50);
-                    if (BotResponse != null)
-                    {
-                        var reply = await BotResponse.ThinkAndReply(response.Data.Clone());
-                        //if the response is null, means no need to reply
-                        if (reply != null)
-                        {
-                            ClientPost(Publish(response.Data.Topic, reply));
-                        }
-
-                    }
-                    else
-                    {
-                        ClientPost(Publish(response.Data.Topic, "I don't know how to talk with you, maybe my father didn't put my brain in my head..."));
-                    }
-
+                    break;
                 }
-            }
-            else if (response.Pres != null)
-            {
-                if (response.Pres.Topic == "me")
-                {
-                    if ((response.Pres.What == ServerPres.Types.What.On || response.Pres.What == ServerPres.Types.What.Msg) && !subscriptions.ContainsKey(response.Pres.Src))
-                    {
-                        ClientPost(Subscribe(response.Pres.Src));
+                var response = client.ResponseStream.Current;
 
-                    }
-                    else if (response.Pres.What == ServerPres.Types.What.Off && subscriptions.ContainsKey(response.Pres.Src))
-                    {
-                        ClientPost(Leave(response.Pres.Src));
-                    }
-                }
-
-                OnServerPresEvent(new ServerPresEventArgs(response.Pres.Clone()));
+                Debug.Log( response.ToString() );
             }
-            else if (response.Meta != null)
-            {
-                OnGetMeta(response.Meta);
-                OnServerMetaEvent(new ServerMetaEventArgs(response.Meta.Clone()));
-            }
-        }
+        }, cancellationTokenSource.Token);
+        receiveBackendTask.Start();
     }
 }
