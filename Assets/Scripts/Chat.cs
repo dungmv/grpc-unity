@@ -15,8 +15,6 @@ using UnityEngine;
 
 public class Chat : MonoBehaviour
 {
-    public string ServerHost = "localhost";
-
     private Queue<ClientMsg> sendMsgQueue = new Queue<ClientMsg>();
     private CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
     private AsyncDuplexStreamingCall<ClientMsg, ServerMsg> client;
@@ -58,7 +56,7 @@ public class Chat : MonoBehaviour
             new ChannelOption("grpc.keepalive_timeout_ms", 2000)
         };
 
-        channel = new Channel(ServerHost, ChannelCredentials.Insecure, options);
+        channel = new Channel("127.0.0.1:16060", ChannelCredentials.Insecure, options);
 
         var stub = new Node.NodeClient(channel);
 
