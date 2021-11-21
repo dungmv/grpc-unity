@@ -1237,4 +1237,4 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   schema: rest
-  secret: YWxpY2U6YWxpY2UxMjM=
+  secret: alice:alice123
