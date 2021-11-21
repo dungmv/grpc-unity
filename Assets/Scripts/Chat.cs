@@ -12,6 +12,7 @@ using Grpc.Core;
 using Newtonsoft.Json;
 using Pbx;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class Chat : MonoBehaviour
 {
@@ -19,18 +20,21 @@ public class Chat : MonoBehaviour
     private CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
     private AsyncDuplexStreamingCall<ClientMsg, ServerMsg> client;
     private Channel channel;
-    private long NextTid { get; set; }
     private string AppName => "zombiewar";
     private string AppVersion => "0.16.0";
     private string LibVersion => "0.16.0";
     private string Platform => $"({RuntimeInformation.OSDescription} {RuntimeInformation.OSArchitecture})";
     public string schema = "rest";
-    public string secret = "YWxpY2U6YWxpY2UxMjM=";
+    public string secret = "alice:alice123";
+    public string host = "127.0.0.1:16060";
+    public string topic = "lobby";
+
+    public InputField msgInput;
+    public InputField msgContent;
 
     // Start is called before the first frame update
     void Start()
     {
-        NextTid = UnityEngine.Random.Range(1, 1000);
     }
 
     // Update is called once per frame
@@ -46,13 +50,16 @@ public class Chat : MonoBehaviour
             new ChannelOption("grpc.keepalive_timeout_ms", 2000)
         };
 
-        channel = new Channel("127.0.0.1:16060", ChannelCredentials.Insecure, options);
+        channel = new Channel(host, ChannelCredentials.Insecure, options);
 
         var stub = new Node.NodeClient(channel);
 
         client = stub.MessageLoop(cancellationToken: cancellationTokenSource.Token);
         SendMessageLoop();
         ReceiveMessageLoop();
+        Hello();
+        Login();
+        SubLobby();
         Debug.Log("Connected");
     }
 
@@ -63,7 +70,49 @@ public class Chat : MonoBehaviour
         Debug.Log("Disconnected");
     }
 
-    public void OnLogin(string cookieFile, MapField<string, ByteString> paramaters)
+    private void Login()
+    {
+        var tid = GetNextTid();
+
+        ClientMsg msg = new ClientMsg() { Login = new ClientLogin() { Id = tid, Scheme = schema, Secret = ByteString.CopyFromUtf8(secret) } };
+        ClientPost(msg);
+        Debug.Log("Login");
+    }
+
+    private void CreateLobby()
+    {
+        var tid = GetNextTid();
+        var msg = new ClientMsg() { Sub = new ClientSub() { Id = tid, Topic = topic } };
+        ClientPost(msg);
+    }
+
+    private void SubLobby()
+    {
+        var tid = GetNextTid();
+        var msg = new ClientMsg() { Sub = new ClientSub() { Id = tid, Topic = "new" + topic } };
+        ClientPost(msg);
+    }
+
+    public void SendMsg()
+    {
+        if (msgInput.text.Length == 0) return;
+        Debug.Log("SendMsg: " + msgInput.text);
+        var content = ByteString.CopyFromUtf8(msgInput.text);
+        var tid = GetNextTid();
+        var pub = new ClientPub() {
+            Id = tid,
+            Topic = topic,
+            NoEcho = true,
+            Content = content
+        };
+        //pub.Head.Add("mime", ByteString.CopyFromUtf8("text/plain"));
+        var msg = new ClientMsg() { Pub = pub };
+        ClientPost(msg);
+
+        msgInput.text = string.Empty;
+    }
+
+    private void OnLogin(string cookieFile, MapField<string, ByteString> paramaters)
     {
         if (paramaters == null || string.IsNullOrEmpty(cookieFile))
         {
@@ -102,16 +151,8 @@ public class Chat : MonoBehaviour
         }
 
     }
-    public void Login()
-    {
-        var tid = GetNextTid();
 
-        ClientMsg msg = new ClientMsg() { Login = new ClientLogin() { Id = tid, Scheme = schema, Secret = ByteString.CopyFromUtf8(secret) } };
-        ClientPost(msg);
-        Debug.Log("Login");
-    }
-
-    public void Hi()
+    private void Hello()
     {
         var tid = GetNextTid();
 
@@ -121,23 +162,20 @@ public class Chat : MonoBehaviour
         Debug.Log("Hi");
     }
 
-    public string GetNextTid()
+    private string GetNextTid()
     {
-        NextTid += 1;
-        return NextTid.ToString();
+        return Guid.NewGuid().ToString();
     }
 
-    public void ClientPost(ClientMsg msg)
+    private void ClientPost(ClientMsg msg)
     {
         if (client != null)
         {
             sendMsgQueue.Enqueue(msg);
         }
     }
-    /// <summary>
-    /// sending message queue loop
-    /// </summary>
-    public void SendMessageLoop()
+
+    private void SendMessageLoop()
     {
         Task sendBackendTask = new Task(async () =>
         {
@@ -167,7 +205,7 @@ public class Chat : MonoBehaviour
 
     }
 
-    public void ReceiveMessageLoop()
+    private void ReceiveMessageLoop()
     {
         Task receiveBackendTask = new Task(async () =>
         {
