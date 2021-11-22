@@ -27,7 +27,7 @@ public class Chat : MonoBehaviour
     public string schema = "rest";
     public string secret = "alice:alice123";
     public string host = "127.0.0.1:16060";
-    public string topic = "lobby";
+    private string topic = "grp_61hMsTfclY";
 
     public InputField msgInput;
     public InputField msgContent;
@@ -55,12 +55,12 @@ public class Chat : MonoBehaviour
         var stub = new Node.NodeClient(channel);
 
         client = stub.MessageLoop(cancellationToken: cancellationTokenSource.Token);
-        SendMessageLoop();
         ReceiveMessageLoop();
+        SendMessageLoop();
         Hello();
         Login();
-        SubLobby();
-        Debug.Log("Connected");
+        SubGuild();
+        Debug.Log("Completed");
     }
 
     public void Disconnect()
@@ -79,37 +79,38 @@ public class Chat : MonoBehaviour
         Debug.Log("Login");
     }
 
-    private void CreateLobby()
+    private void CreateTopic()
+    {
+        var tid = GetNextTid();
+        var msg = new ClientMsg() { Sub = new ClientSub() { Id = tid, Topic = "new"} };
+        ClientPost(msg);
+    }
+
+    private void SubGuild()
     {
         var tid = GetNextTid();
         var msg = new ClientMsg() { Sub = new ClientSub() { Id = tid, Topic = topic } };
         ClientPost(msg);
     }
 
-    private void SubLobby()
-    {
-        var tid = GetNextTid();
-        var msg = new ClientMsg() { Sub = new ClientSub() { Id = tid, Topic = "new" + topic } };
-        ClientPost(msg);
-    }
-
     public void SendMsg()
     {
         if (msgInput.text.Length == 0) return;
-        Debug.Log("SendMsg: " + msgInput.text);
-        var content = ByteString.CopyFromUtf8(msgInput.text);
         var tid = GetNextTid();
-        var pub = new ClientPub() {
+        var message = JsonConvert.SerializeObject(new { txt = msgInput.text });
+        Debug.LogFormat("SendMsg: {0}", message);
+        var content = ByteString.CopyFromUtf8(message);
+        var pub = new ClientPub()
+        {
             Id = tid,
             Topic = topic,
-            NoEcho = true,
+            NoEcho = false,
             Content = content
         };
-        //pub.Head.Add("mime", ByteString.CopyFromUtf8("text/plain"));
         var msg = new ClientMsg() { Pub = pub };
         ClientPost(msg);
 
-        msgInput.text = string.Empty;
+        msgInput.text = "";
     }
 
     private void OnLogin(string cookieFile, MapField<string, ByteString> paramaters)
@@ -169,17 +170,14 @@ public class Chat : MonoBehaviour
 
     private void ClientPost(ClientMsg msg)
     {
-        if (client != null)
-        {
-            sendMsgQueue.Enqueue(msg);
-        }
+        sendMsgQueue.Enqueue(msg);
     }
 
     private void SendMessageLoop()
     {
         Task sendBackendTask = new Task(async () =>
         {
-            Debug.Log("Start Message Queue Message send queue started...");
+            Debug.Log("Start Message Queue, Message send queue started...");
             while (!cancellationTokenSource.IsCancellationRequested)
             {
                 if (sendMsgQueue.Count > 0)
@@ -191,7 +189,9 @@ public class Chat : MonoBehaviour
                     }
                     catch (Exception e)
                     {
-                        Debug.LogException(e);
+                        Debug.LogError(e);
+                        sendMsgQueue.Enqueue(msg);
+                        Thread.Sleep(1000);
                     }
                 }
                 else
@@ -199,7 +199,7 @@ public class Chat : MonoBehaviour
                     Thread.Sleep(10);
                 }
             }
-            Debug.Log("User Cancel Detect cancel message,stop sending message...");
+            Debug.Log("User Cancel, Detect cancel message,stop sending message...");
         }, cancellationTokenSource.Token);
         sendBackendTask.Start();
 
@@ -217,7 +217,7 @@ public class Chat : MonoBehaviour
                 }
                 var response = client.ResponseStream.Current;
 
-                Debug.Log( response.ToString() );
+                Debug.Log(response.ToString());
             }
         }, cancellationTokenSource.Token);
         receiveBackendTask.Start();
