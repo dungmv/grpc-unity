@@ -5,64 +5,41 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using Google.Protobuf;
 using Google.Protobuf.Collections;
 using Grpc.Core;
 using Newtonsoft.Json;
 using Pbx;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class Chat : MonoBehaviour
 {
-    public string ServerHost = "localhost";
-
     private Queue<ClientMsg> sendMsgQueue = new Queue<ClientMsg>();
-    private Dictionary<string, Future> onCompletion = new Dictionary<string, Future>();
     private CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
     private AsyncDuplexStreamingCall<ClientMsg, ServerMsg> client;
     private Channel channel;
-    private long NextTid { get; set; }
-    private string AppName => "ChatBot";
-    /// <summary>
-    /// Chatbot version
-    /// </summary>
+    private string AppName => "zombiewar";
     private string AppVersion => "0.16.0";
-    /// <summary>
-    /// Chatbot library version
-    /// </summary>
     private string LibVersion => "0.16.0";
-    /// <summary>
-    /// Chatbot current platfrom information
-    /// </summary>
     private string Platform => $"({RuntimeInformation.OSDescription} {RuntimeInformation.OSArchitecture})";
-    private string cookie = ".tn-cookie";
-    private string schema = "basic";
-    private string secret = "";
+    public string schema = "rest";
+    public string secret = "alice:alice123";
+    public string host = "127.0.0.1:16060";
+    public string topic = "lobby";
+
+    public InputField msgInput;
+    public InputField msgContent;
 
     // Start is called before the first frame update
     void Start()
     {
-        NextTid = UnityEngine.Random.Range(1, 1000);
     }
 
     // Update is called once per frame
-    async void Update()
+    void Update()
     {
-        while (client != null && sendMsgQueue.Count > 0)
-        {
-            var msg = sendMsgQueue.Dequeue();
-            try
-            {
-                await client.RequestStream.WriteAsync(msg);
-            }
-            catch (Exception e)
-            {
-                Debug.LogFormat("Send Message Error {}, Failed message will be put back to queue...", e.Message);
-                sendMsgQueue.Enqueue(msg);
-                Thread.Sleep(1000);
-            }
-
-        }
     }
 
     public void Connect()
@@ -73,20 +50,69 @@ public class Chat : MonoBehaviour
             new ChannelOption("grpc.keepalive_timeout_ms", 2000)
         };
 
-        channel = new Channel(ServerHost, ChannelCredentials.Insecure, options);
+        channel = new Channel(host, ChannelCredentials.Insecure, options);
 
         var stub = new Node.NodeClient(channel);
 
         client = stub.MessageLoop(cancellationToken: cancellationTokenSource.Token);
+        SendMessageLoop();
+        ReceiveMessageLoop();
+        Hello();
+        Login();
+        SubLobby();
+        Debug.Log("Connected");
     }
 
     public void Disconnect()
     {
         cancellationTokenSource.Cancel();
         channel.ShutdownAsync().Wait();
+        Debug.Log("Disconnected");
     }
 
-    public void OnLogin(string cookieFile, MapField<string, ByteString> paramaters)
+    private void Login()
+    {
+        var tid = GetNextTid();
+
+        ClientMsg msg = new ClientMsg() { Login = new ClientLogin() { Id = tid, Scheme = schema, Secret = ByteString.CopyFromUtf8(secret) } };
+        ClientPost(msg);
+        Debug.Log("Login");
+    }
+
+    private void CreateLobby()
+    {
+        var tid = GetNextTid();
+        var msg = new ClientMsg() { Sub = new ClientSub() { Id = tid, Topic = topic } };
+        ClientPost(msg);
+    }
+
+    private void SubLobby()
+    {
+        var tid = GetNextTid();
+        var msg = new ClientMsg() { Sub = new ClientSub() { Id = tid, Topic = "new" + topic } };
+        ClientPost(msg);
+    }
+
+    public void SendMsg()
+    {
+        if (msgInput.text.Length == 0) return;
+        Debug.Log("SendMsg: " + msgInput.text);
+        var content = ByteString.CopyFromUtf8(msgInput.text);
+        var tid = GetNextTid();
+        var pub = new ClientPub() {
+            Id = tid,
+            Topic = topic,
+            NoEcho = true,
+            Content = content
+        };
+        //pub.Head.Add("mime", ByteString.CopyFromUtf8("text/plain"));
+        var msg = new ClientMsg() { Pub = pub };
+        ClientPost(msg);
+
+        msgInput.text = string.Empty;
+    }
+
+    private void OnLogin(string cookieFile, MapField<string, ByteString> paramaters)
     {
         if (paramaters == null || string.IsNullOrEmpty(cookieFile))
         {
@@ -105,7 +131,7 @@ public class Chat : MonoBehaviour
         }
         else
         {
-            cookieDics["schema"] = "basic";
+            cookieDics["schema"] = "token";
             cookieDics["secret"] = JsonConvert.DeserializeObject<string>(paramaters["token"].ToString(Encoding.UTF8));
         }
         //save token for upload operation
@@ -121,60 +147,84 @@ public class Chat : MonoBehaviour
         }
         catch (Exception e)
         {
-            Debug.Log($"On Login Failed to save authentication cookie:{e}");
+            Debug.LogException(e);
         }
 
     }
-    public void Login()
+
+    private void Hello()
     {
         var tid = GetNextTid();
-        AddFuture(tid, new Future(tid, Future.FutureTypes.Login, new Action<string, MapField<string, ByteString>>((fname, paramaters) =>
-        {
-            OnLogin(fname, paramaters);
-        }), cookie));
-
-        ClientMsg msg = new ClientMsg() { Login = new ClientLogin() { Id = tid, Scheme = schema, Secret = ByteString.CopyFromUtf8(secret) } };
-        ClientPost(msg);
-    }
-
-    public void Hi()
-    {
-        var tid = GetNextTid();
-        AddFuture(tid, new Future(tid, Future.FutureTypes.Hi, new Action<string, MapField<string, ByteString>>((unused, paramaters) =>
-        {
-            ServerVersion(paramaters);
-        })));
 
         ClientMsg msg = new ClientMsg() { Hi = new ClientHi() { Id = tid, UserAgent = $"{AppName}/{AppVersion} {Platform}; gRPC-csharp/{AppVersion}", Ver = LibVersion, Lang = "EN" } };
 
         ClientPost(msg);
+        Debug.Log("Hi");
     }
 
-    public void AddFuture(string tid, Future bundle)
+    private string GetNextTid()
     {
-        onCompletion.Add(tid, bundle);
+        return Guid.NewGuid().ToString();
     }
 
-    public void ServerVersion(MapField<string, ByteString> paramaters)
-    {
-        if (paramaters == null)
-        {
-            return;
-        }
-        Debug.Log($"Server Version Server:{paramaters["build"].ToString(Encoding.ASCII)},{paramaters["ver"].ToString(Encoding.ASCII)}");
-    }
-
-    public string GetNextTid()
-    {
-        NextTid += 1;
-        return NextTid.ToString();
-    }
-
-    public void ClientPost(ClientMsg msg)
+    private void ClientPost(ClientMsg msg)
     {
         if (client != null)
         {
             sendMsgQueue.Enqueue(msg);
         }
+    }
+
+    private void SendMessageLoop()
+    {
+        Task sendBackendTask = new Task(async () =>
+        {
+            Debug.Log("Start Message Queue Message send queue started...");
+            while (!cancellationTokenSource.IsCancellationRequested)
+            {
+                if (sendMsgQueue.Count > 0)
+                {
+                    var msg = sendMsgQueue.Dequeue();
+                    try
+                    {
+                        await client.RequestStream.WriteAsync(msg);
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogException(e);
+                    }
+                }
+                else
+                {
+                    Thread.Sleep(10);
+                }
+            }
+            Debug.Log("User Cancel Detect cancel message,stop sending message...");
+        }, cancellationTokenSource.Token);
+        sendBackendTask.Start();
+
+    }
+
+    private void ReceiveMessageLoop()
+    {
+        Task receiveBackendTask = new Task(async () =>
+        {
+            while (!cancellationTokenSource.IsCancellationRequested)
+            {
+                if (!await client.ResponseStream.MoveNext())
+                {
+                    break;
+                }
+                var response = client.ResponseStream.Current;
+
+                Debug.Log( response.ToString() );
+            }
+        }, cancellationTokenSource.Token);
+        receiveBackendTask.Start();
+    }
+
+    private void OnDisable()
+    {
+        Disconnect();
     }
 }
