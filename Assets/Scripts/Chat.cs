@@ -32,6 +32,8 @@ public class Chat : MonoBehaviour
     public InputField msgInput;
     public InputField msgContent;
 
+    private Queue<ServerMsg> msgQueue = new Queue<ServerMsg>();
+
     // Start is called before the first frame update
     void Start()
     {
@@ -40,17 +42,27 @@ public class Chat : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
+        while(msgQueue.Count > 0)
+        {
+            var msg = msgQueue.Dequeue();
+            if (msg.Data != null)
+            {
+                var data = msg.Data.Content.ToStringUtf8();
+                var content = JsonConvert.DeserializeObject<ContentMsg>(data);
+                this.msgContent.text += content.txt + "\n";
+            }
+        }
     }
 
     public void Connect()
     {
-        var options = new List<ChannelOption>
-        {
-            new ChannelOption("grpc.keepalive_time_ms", 2000),
-            new ChannelOption("grpc.keepalive_timeout_ms", 2000)
-        };
+        //var options = new List<ChannelOption>
+        //{
+        //    new ChannelOption("grpc.keepalive_time_ms", 1000),
+        //    new ChannelOption("grpc.keepalive_timeout_ms", 3000)
+        //};
 
-        channel = new Channel(host, ChannelCredentials.Insecure, options);
+        channel = new Channel(host, ChannelCredentials.Insecure);
 
         var stub = new Node.NodeClient(channel);
 
@@ -97,7 +109,7 @@ public class Chat : MonoBehaviour
     {
         if (msgInput.text.Length == 0) return;
         var tid = GetNextTid();
-        var message = JsonConvert.SerializeObject(new { txt = msgInput.text });
+        var message = JsonConvert.SerializeObject(new ContentMsg() { txt = msgInput.text });
         Debug.LogFormat("SendMsg: {0}", message);
         var content = ByteString.CopyFromUtf8(message);
         var pub = new ClientPub()
@@ -107,7 +119,7 @@ public class Chat : MonoBehaviour
             NoEcho = false,
             Content = content
         };
-        var msg = new ClientMsg() { Pub = pub };
+        var msg = new ClientMsg() { Pub = pub, AuthLevel = AuthLevel.Auth };
         ClientPost(msg);
 
         msgInput.text = "";
@@ -215,9 +227,9 @@ public class Chat : MonoBehaviour
                 {
                     break;
                 }
-                var response = client.ResponseStream.Current;
-
-                Debug.Log(response.ToString());
+                var msg = client.ResponseStream.Current;
+                msgQueue.Enqueue(msg);
+                Debug.Log(msg.ToString());
             }
         }, cancellationTokenSource.Token);
         receiveBackendTask.Start();
