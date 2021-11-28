@@ -125,46 +125,6 @@ public class Chat : MonoBehaviour
         msgInput.text = "";
     }
 
-    private void OnLogin(string cookieFile, MapField<string, ByteString> paramaters)
-    {
-        if (paramaters == null || string.IsNullOrEmpty(cookieFile))
-        {
-            return;
-        }
-        //if (paramaters.ContainsKey("user"))
-        //{
-        //    BotUID = paramaters["user"].ToString(Encoding.ASCII);
-        //}
-        Dictionary<string, string> cookieDics = new Dictionary<string, string>();
-        cookieDics["schema"] = "token";
-        if (paramaters.ContainsKey("token"))
-        {
-            cookieDics["secret"] = JsonConvert.DeserializeObject<string>(paramaters["token"].ToString(Encoding.UTF8));
-            cookieDics["expires"] = JsonConvert.DeserializeObject<string>(paramaters["expires"].ToString(Encoding.UTF8));
-        }
-        else
-        {
-            cookieDics["schema"] = "token";
-            cookieDics["secret"] = JsonConvert.DeserializeObject<string>(paramaters["token"].ToString(Encoding.UTF8));
-        }
-        //save token for upload operation
-        var token = cookieDics["secret"];
-        try
-        {
-            using (FileStream stream = new FileStream(cookieFile, FileMode.Create, FileAccess.Write))
-            using (StreamWriter w = new StreamWriter(stream))
-            {
-                w.Write(JsonConvert.SerializeObject(cookieDics));
-            }
-
-        }
-        catch (Exception e)
-        {
-            Debug.LogException(e);
-        }
-
-    }
-
     private void Hello()
     {
         var tid = GetNextTid();
