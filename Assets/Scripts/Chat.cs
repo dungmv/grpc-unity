@@ -28,6 +28,7 @@ public class Chat : MonoBehaviour
     public string secret = "alice:alice123";
     public string host = "127.0.0.1:16060";
     public string topic = "grpu0Lh09cJE1M";
+    public string create = "nch";
 
     public InputField msgInput;
     public InputField msgContent;
@@ -85,10 +86,6 @@ public class Chat : MonoBehaviour
         ReceiveMessageLoop();
         SendMessageLoop();
         Hello();
-        Login();
-        SubGuild();
-
-        StartCoroutine(FetchMsg());
         Debug.Log("Completed");
     }
 
@@ -99,7 +96,7 @@ public class Chat : MonoBehaviour
         Debug.Log("Disconnected");
     }
 
-    private void Login()
+    public void Login()
     {
         var tid = GetNextTid();
 
@@ -111,20 +108,19 @@ public class Chat : MonoBehaviour
     public void CreateTopic()
     {
         var tid = GetNextTid();
-        var msg = new ClientMsg() { Sub = new ClientSub() { Id = tid, Topic = "new"} };
+        var msg = new ClientMsg() { Sub = new ClientSub() { Id = tid, Topic = create + topic } };
         ClientPost(msg);
     }
 
-    private void SubGuild()
+    public void SubTopic()
     {
         var tid = GetNextTid();
         var msg = new ClientMsg() { Sub = new ClientSub() { Id = tid, Topic = topic } };
         ClientPost(msg);
     }
 
-    private IEnumerator FetchMsg()
+    public void FetchMsg()
     {
-        yield return new WaitForSeconds(3);
         var tid = GetNextTid();
         var msg = new ClientMsg()
         {
@@ -158,7 +154,7 @@ public class Chat : MonoBehaviour
             Id = tid,
             Topic = topic,
             NoEcho = false,
-            Content = content
+            Content = content,
         };
         var msg = new ClientMsg() { Pub = pub, AuthLevel = AuthLevel.Auth };
         ClientPost(msg);
