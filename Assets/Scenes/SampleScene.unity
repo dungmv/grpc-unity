@@ -1628,7 +1628,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   schema: rest
-  secret: alice:alice123
+  secret: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IkZCOjozMTAwODc0ODA4MDkxNTMiLCJpYXQiOjE2MzgxMTM0NjYsImV4cCI6MTYzODEyMDY2Nn0.LdQYgrD89odG_apJ4LvB8JtZRePvexZkUDIzNHhXgc4
   host: 127.0.0.1:16060
   msgInput: {fileID: 1723558852}
   msgContent: {fileID: 527349910}
