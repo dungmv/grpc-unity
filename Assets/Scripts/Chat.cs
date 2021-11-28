@@ -27,7 +27,7 @@ public class Chat : MonoBehaviour
     public string schema = "rest";
     public string secret = "alice:alice123";
     public string host = "127.0.0.1:16060";
-    private string topic = "grp_61hMsTfclY";
+    public string topic = "grpu0Lh09cJE1M";
 
     public InputField msgInput;
     public InputField msgContent;
@@ -91,7 +91,7 @@ public class Chat : MonoBehaviour
         Debug.Log("Login");
     }
 
-    private void CreateTopic()
+    public void CreateTopic()
     {
         var tid = GetNextTid();
         var msg = new ClientMsg() { Sub = new ClientSub() { Id = tid, Topic = "new"} };
