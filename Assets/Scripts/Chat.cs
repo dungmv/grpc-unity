@@ -49,8 +49,23 @@ public class Chat : MonoBehaviour
             {
                 var data = msg.Data.Content.ToStringUtf8();
                 var content = JsonConvert.DeserializeObject<ContentMsg>(data);
-                this.msgContent.text += content.txt + "\n";
+                DateTime dateTime = new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc);
+                dateTime = dateTime.AddMilliseconds(msg.Data.Timestamp).ToLocalTime();
+                var bytes = Convert.FromBase64String(msg.Data.FromUserId + "==");
+                var userId = BitConverter.ToInt64(bytes, 0);
+                this.msgContent.text += string.Format("[{0} : {1}] {2}\n", dateTime, userId, content.txt);
             }
+            if (msg.Ctrl != null)
+            {
+                //if (msg.Ctrl.Topic != null)
+                //{
+                //    Debug.LogFormat("Sub Topic {0}", msg.Ctrl.Topic);
+                //} else if (msg.Ctrl.Params != null)
+                //{
+                //    Debug.LogFormat("Login ok {0}", msg.Ctrl.Params.ToString());
+                //}
+            }
+            
         }
     }
 
@@ -72,6 +87,8 @@ public class Chat : MonoBehaviour
         Hello();
         Login();
         SubGuild();
+
+        StartCoroutine(FetchMsg());
         Debug.Log("Completed");
     }
 
@@ -102,6 +119,30 @@ public class Chat : MonoBehaviour
     {
         var tid = GetNextTid();
         var msg = new ClientMsg() { Sub = new ClientSub() { Id = tid, Topic = topic } };
+        ClientPost(msg);
+    }
+
+    private IEnumerator FetchMsg()
+    {
+        yield return new WaitForSeconds(3);
+        var tid = GetNextTid();
+        var msg = new ClientMsg()
+        {
+            Get = new ClientGet()
+            {
+                Id = tid,
+                Topic = topic,
+                Query = new GetQuery()
+                {
+                    What = "data",
+                    Data = new GetOpts()
+                    {
+                        Limit = 25
+                    }
+                }
+            }
+        };
+        Debug.Log("FetchMsg");
         ClientPost(msg);
     }
 
@@ -162,8 +203,8 @@ public class Chat : MonoBehaviour
                     catch (Exception e)
                     {
                         Debug.LogError(e);
-                        sendMsgQueue.Enqueue(msg);
-                        Thread.Sleep(1000);
+                        //sendMsgQueue.Enqueue(msg);
+                        //Thread.Sleep(1000);
                     }
                 }
                 else
