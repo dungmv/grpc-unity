@@ -27,10 +27,13 @@ public class Chat : MonoBehaviour
     public string schema = "rest";
     public string secret = "alice:alice123";
     public string host = "127.0.0.1:16060";
-    public string topic = "lobby";
+    public string topic = "grpu0Lh09cJE1M";
+    public string create = "nch";
 
     public InputField msgInput;
     public InputField msgContent;
+
+    private Queue<ServerMsg> msgQueue = new Queue<ServerMsg>();
 
     // Start is called before the first frame update
     void Start()
@@ -40,27 +43,50 @@ public class Chat : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
+        while(msgQueue.Count > 0)
+        {
+            var msg = msgQueue.Dequeue();
+            if (msg.Data != null)
+            {
+                var data = msg.Data.Content.ToStringUtf8();
+                var content = JsonConvert.DeserializeObject<ContentMsg>(data);
+                DateTime dateTime = new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc);
+                dateTime = dateTime.AddMilliseconds(msg.Data.Timestamp).ToLocalTime();
+                var bytes = Convert.FromBase64String(msg.Data.FromUserId + "==");
+                var userId = BitConverter.ToInt64(bytes, 0);
+                this.msgContent.text += string.Format("[{0} : {1}] {2}\n", dateTime, userId, content.txt);
+            }
+            if (msg.Ctrl != null)
+            {
+                //if (msg.Ctrl.Topic != null)
+                //{
+                //    Debug.LogFormat("Sub Topic {0}", msg.Ctrl.Topic);
+                //} else if (msg.Ctrl.Params != null)
+                //{
+                //    Debug.LogFormat("Login ok {0}", msg.Ctrl.Params.ToString());
+                //}
+            }
+            
+        }
     }
 
     public void Connect()
     {
-        var options = new List<ChannelOption>
-        {
-            new ChannelOption("grpc.keepalive_time_ms", 2000),
-            new ChannelOption("grpc.keepalive_timeout_ms", 2000)
-        };
+        //var options = new List<ChannelOption>
+        //{
+        //    new ChannelOption("grpc.keepalive_time_ms", 1000),
+        //    new ChannelOption("grpc.keepalive_timeout_ms", 3000)
+        //};
 
-        channel = new Channel(host, ChannelCredentials.Insecure, options);
+        channel = new Channel(host, ChannelCredentials.Insecure);
 
         var stub = new Node.NodeClient(channel);
 
         client = stub.MessageLoop(cancellationToken: cancellationTokenSource.Token);
-        SendMessageLoop();
         ReceiveMessageLoop();
+        SendMessageLoop();
         Hello();
-        Login();
-        SubLobby();
-        Debug.Log("Connected");
+        Debug.Log("Completed");
     }
 
     public void Disconnect()
@@ -70,7 +96,7 @@ public class Chat : MonoBehaviour
         Debug.Log("Disconnected");
     }
 
-    private void Login()
+    public void Login()
     {
         var tid = GetNextTid();
 
@@ -79,77 +105,61 @@ public class Chat : MonoBehaviour
         Debug.Log("Login");
     }
 
-    private void CreateLobby()
+    public void CreateTopic()
+    {
+        var tid = GetNextTid();
+        var msg = new ClientMsg() { Sub = new ClientSub() { Id = tid, Topic = create + topic } };
+        ClientPost(msg);
+    }
+
+    public void SubTopic()
     {
         var tid = GetNextTid();
         var msg = new ClientMsg() { Sub = new ClientSub() { Id = tid, Topic = topic } };
         ClientPost(msg);
     }
 
-    private void SubLobby()
+    public void FetchMsg()
     {
         var tid = GetNextTid();
-        var msg = new ClientMsg() { Sub = new ClientSub() { Id = tid, Topic = "new" + topic } };
+        var msg = new ClientMsg()
+        {
+            Get = new ClientGet()
+            {
+                Id = tid,
+                Topic = topic,
+                Query = new GetQuery()
+                {
+                    What = "data",
+                    Data = new GetOpts()
+                    {
+                        Limit = 25
+                    }
+                }
+            }
+        };
+        Debug.Log("FetchMsg");
         ClientPost(msg);
     }
 
     public void SendMsg()
     {
         if (msgInput.text.Length == 0) return;
-        Debug.Log("SendMsg: " + msgInput.text);
-        var content = ByteString.CopyFromUtf8(msgInput.text);
         var tid = GetNextTid();
-        var pub = new ClientPub() {
+        var message = JsonConvert.SerializeObject(new ContentMsg() { txt = msgInput.text });
+        Debug.LogFormat("SendMsg: {0}", message);
+        var content = ByteString.CopyFromUtf8(message);
+        var pub = new ClientPub()
+        {
             Id = tid,
             Topic = topic,
-            NoEcho = true,
-            Content = content
+            NoEcho = false,
+            Content = content,
         };
-        //pub.Head.Add("mime", ByteString.CopyFromUtf8("text/plain"));
-        var msg = new ClientMsg() { Pub = pub };
+        var msg = new ClientMsg() { Pub = pub, AuthLevel = AuthLevel.Auth };
         ClientPost(msg);
 
-        msgInput.text = string.Empty;
-    }
-
-    private void OnLogin(string cookieFile, MapField<string, ByteString> paramaters)
-    {
-        if (paramaters == null || string.IsNullOrEmpty(cookieFile))
-        {
-            return;
-        }
-        //if (paramaters.ContainsKey("user"))
-        //{
-        //    BotUID = paramaters["user"].ToString(Encoding.ASCII);
-        //}
-        Dictionary<string, string> cookieDics = new Dictionary<string, string>();
-        cookieDics["schema"] = "token";
-        if (paramaters.ContainsKey("token"))
-        {
-            cookieDics["secret"] = JsonConvert.DeserializeObject<string>(paramaters["token"].ToString(Encoding.UTF8));
-            cookieDics["expires"] = JsonConvert.DeserializeObject<string>(paramaters["expires"].ToString(Encoding.UTF8));
-        }
-        else
-        {
-            cookieDics["schema"] = "token";
-            cookieDics["secret"] = JsonConvert.DeserializeObject<string>(paramaters["token"].ToString(Encoding.UTF8));
-        }
-        //save token for upload operation
-        var token = cookieDics["secret"];
-        try
-        {
-            using (FileStream stream = new FileStream(cookieFile, FileMode.Create, FileAccess.Write))
-            using (StreamWriter w = new StreamWriter(stream))
-            {
-                w.Write(JsonConvert.SerializeObject(cookieDics));
-            }
-
-        }
-        catch (Exception e)
-        {
-            Debug.LogException(e);
-        }
-
+        msgInput.text = "";
     }
 
     private void Hello()
@@ -169,17 +179,14 @@ public class Chat : MonoBehaviour
 
     private void ClientPost(ClientMsg msg)
     {
-        if (client != null)
-        {
-            sendMsgQueue.Enqueue(msg);
-        }
+        sendMsgQueue.Enqueue(msg);
     }
 
     private void SendMessageLoop()
     {
         Task sendBackendTask = new Task(async () =>
         {
-            Debug.Log("Start Message Queue Message send queue started...");
+            Debug.Log("Start Message Queue, Message send queue started...");
             while (!cancellationTokenSource.IsCancellationRequested)
             {
                 if (sendMsgQueue.Count > 0)
@@ -191,7 +198,9 @@ public class Chat : MonoBehaviour
                     }
                     catch (Exception e)
                     {
-                        Debug.LogException(e);
+                        Debug.LogError(e);
+                        //sendMsgQueue.Enqueue(msg);
+                        //Thread.Sleep(1000);
                     }
                 }
                 else
@@ -199,7 +208,7 @@ public class Chat : MonoBehaviour
                     Thread.Sleep(10);
                 }
             }
-            Debug.Log("User Cancel Detect cancel message,stop sending message...");
+            Debug.Log("User Cancel, Detect cancel message,stop sending message...");
         }, cancellationTokenSource.Token);
         sendBackendTask.Start();
 
@@ -215,9 +224,9 @@ public class Chat : MonoBehaviour
                 {
                     break;
                 }
-                var response = client.ResponseStream.Current;
-
-                Debug.Log( response.ToString() );
+                var msg = client.ResponseStream.Current;
+                msgQueue.Enqueue(msg);
+                Debug.Log(msg.ToString());
             }
         }, cancellationTokenSource.Token);
         receiveBackendTask.Start();
